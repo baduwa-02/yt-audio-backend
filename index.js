@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,8 +18,9 @@ async function fetchFromInvidious(endpoint) {
   let lastError;
   for (const instance of INVIDIOUS_INSTANCES) {
     try {
-      const response = await axios.get(`${instance}${endpoint}`, { timeout: 5000 });
-      return response.data;
+      const response = await fetch(`${instance}${endpoint}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return await response.json();
     } catch (err) {
       lastError = err;
     }
@@ -69,7 +69,6 @@ app.get('/api/stream/:id', async (req, res) => {
       return res.status(404).json({ error: 'Audio stream not found' });
     }
 
-    // Best quality audio stream එක තේරීම
     const bestAudio = audioFormats.reduce((prev, curr) => 
       (Number(curr.bitrate || 0) > Number(prev.bitrate || 0)) ? curr : prev
     );

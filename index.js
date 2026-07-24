@@ -56,7 +56,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// 2. Direct Audio Stream URL Endpoint (Flexible Audio Matching)
+// 2. Direct Audio Stream URL Endpoint (Smart URL Extractor)
 app.get('/api/stream/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
@@ -65,14 +65,14 @@ app.get('/api/stream/:id', async (req, res) => {
       return res.status(503).json({ error: 'YouTube client is initializing' });
     }
 
-    const info = await youtube.getBasicInfo(videoId);
+    // Use getInfo for complete player context
+    const info = await youtube.getInfo(videoId);
 
-    // Audio-only best quality format
+    // Select best audio format
     let audioFormat;
     try {
       audioFormat = info.chooseFormat({ type: 'audio', quality: 'best' });
     } catch (e) {
-      // Fallback manual lookup
       const formats = info.streaming_data?.adaptive_formats || [];
       audioFormat = formats.find((f) => f.has_audio && !f.has_video);
     }
@@ -81,8 +81,15 @@ app.get('/api/stream/:id', async (req, res) => {
       return res.status(404).json({ error: 'Direct audio stream not found' });
     }
 
-    // Direct Playable Stream URL Decryption
-    const streamUrl = audioFormat.decipher(youtube.session.player);
+    // Check if direct URL exists; if not, decipher it
+    let streamUrl = audioFormat.url;
+    if (!streamUrl && typeof audioFormat.decipher === 'function') {
+      streamUrl = audioFormat.decipher(youtube.session.player);
+    }
+
+    if (!streamUrl) {
+      return res.status(500).json({ error: 'Could not extract stream URL' });
+    }
 
     res.json({
       id: videoId,

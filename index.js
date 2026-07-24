@@ -36,7 +36,7 @@ app.get('/api/search', async (req, res) => {
     }
 
     if (!youtube) {
-      return res.status(503).json({ error: 'YouTube client is initializing, please try again in a few seconds' });
+      return res.status(503).json({ error: 'YouTube client is initializing, please try again' });
     }
 
     const search = await youtube.search(query, { type: 'video' });
@@ -56,7 +56,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// 2. Direct Audio Stream URL Endpoint
+// 2. Direct Audio Stream URL Endpoint (Fixed Decryption)
 app.get('/api/stream/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
@@ -67,18 +67,23 @@ app.get('/api/stream/:id', async (req, res) => {
 
     const info = await youtube.getBasicInfo(videoId);
 
-    // Filter .m4a Direct Audio Stream Format
-    const audioFormat = info.streaming_data?.adaptive_formats.find(
-      (format) => format.mime_type.includes('audio/mp4')
-    );
+    // Filter Best Audio Format (.m4a)
+    const audioFormat = info.chooseFormat({
+      type: 'audio',
+      quality: 'best',
+      format: 'm4a'
+    });
 
     if (!audioFormat) {
       return res.status(404).json({ error: 'Direct audio stream not found' });
     }
 
+    // Stream URL එක Decipher (Decrypt) කර ලබාගැනීම
+    const streamUrl = audioFormat.decipher(youtube.session.player);
+
     res.json({
       id: videoId,
-      streamUrl: audioFormat.url,
+      streamUrl: streamUrl,
       mimeType: audioFormat.mime_type,
       bitrate: audioFormat.bitrate,
     });

@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { Innertube } from 'youtubei.js';
+import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,106 +8,67 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-let youtube;
-
-// Initialize YouTube.js
-async function initYoutube() {
-  try {
-    youtube = await Innertube.create();
-    console.log('✅ YouTube.js Client Successfully Initialized!');
-  } catch (err) {
-    console.error('❌ Failed to initialize YouTube.js:', err);
-  }
-}
-
-initYoutube();
+// Public Piped Instance URL
+const PIPED_API = 'https://pipedapi.kavin.rocks';
 
 // Health Check
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'YouTube Audio API is running!' });
+  res.json({ status: 'online', message: 'Audio API is running!' });
 });
 
-// 1. Search Track Endpoint
+// 1. Search Track
 app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q;
-    if (!query) {
-      return res.status(400).json({ error: 'Search query (q) is required' });
-    }
+    if (!query) return res.status(400).json({ error: 'Query required' });
 
-    if (!youtube) {
-      return res.status(503).json({ error: 'YouTube client is initializing' });
-    }
+    const response = await axios.get(`${PIPED_API}/search`, {
+      params: { q: query, filter: 'videos' }
+    });
 
-    const search = await youtube.search(query, { type: 'video' });
-    
-    const results = search.videos.map((video) => ({
-      id: video.id,
-      title: video.title?.text || 'Unknown Title',
-      artist: video.author?.name || 'Unknown Channel',
-      thumbnail: video.thumbnails?.[0]?.url || '',
-      duration: video.duration?.text || '00:00',
+    const results = response.data.items.map((video) => ({
+      id: video.url.split('v=')[1],
+      title: video.title,
+      artist: video.uploaderName,
+      thumbnail: video.thumbnail,
+      duration: video.duration,
     }));
 
     res.json({ results });
   } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Search failed', details: error.message });
   }
 });
 
-// 2. Direct Audio Stream URL Endpoint (Fixed Stream Extraction)
+// 2. Stream URL Extraction
 app.get('/api/stream/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
-    
-    if (!youtube) {
-      return res.status(503).json({ error: 'YouTube client is initializing' });
+    const response = await axios.get(`${PIPED_API}/streams/${videoId}`);
+
+    // High quality audio streams විතරක් පෙරා ගැනීම
+    const audioStreams = response.data.audioStreams;
+
+    if (!audioStreams || audioStreams.length === 0) {
+      return res.status(404).json({ error: 'Audio stream not found' });
     }
 
-    const info = await youtube.getInfo(videoId);
-
-    // Filter Best Audio Format (.m4a)
-    const format = info.chooseFormat({
-      type: 'audio',
-      quality: 'best'
-    });
-
-    if (!format) {
-      return res.status(404).json({ error: 'Direct audio stream not found' });
-    }
-
-    // Direct Stream URL Decrypting via InnerTube built-in format URL solver
-    const streamUrl = format.decipher ? format.decipher(youtube.session.player) : format.url;
+    // Best bitrate audio stream එක තේරීම
+    const bestAudio = audioStreams.reduce((prev, curr) =>
+      curr.bitrate > prev.bitrate ? curr : prev
+    );
 
     res.json({
       id: videoId,
-      streamUrl: streamUrl,
-      mimeType: format.mime_type,
-      bitrate: format.bitrate,
+      title: response.data.title,
+      artist: response.data.uploader,
+      thumbnail: response.data.thumbnailUrl,
+      streamUrl: bestAudio.url, // Direct playable proxy URL
+      mimeType: bestAudio.mimeType,
+      bitrate: bestAudio.bitrate,
     });
   } catch (error) {
-    console.error('Stream error:', error);
-
-    // Fallback: Try fetching via streamingData direct URL extraction
-    try {
-      const info = await youtube.getBasicInfo(req.params.id);
-      const formats = info.streaming_data?.adaptive_formats || [];
-      const audio = formats.find(f => f.has_audio && !f.has_video);
-
-      if (audio && audio.url) {
-        return res.json({
-          id: req.params.id,
-          streamUrl: audio.url,
-          mimeType: audio.mime_type,
-          bitrate: audio.bitrate
-        });
-      }
-    } catch (fallbackError) {
-      console.error('Fallback error:', fallbackError);
-    }
-
-    res.status(500).json({ error: 'Failed to extract playable audio URL' });
+    res.status(500).json({ error: 'Failed to fetch stream', details: error.message });
   }
 });
 

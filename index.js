@@ -18,7 +18,11 @@ async function fetchFromInvidious(endpoint) {
   let lastError;
   for (const instance of INVIDIOUS_INSTANCES) {
     try {
-      const response = await fetch(`${instance}${endpoint}`);
+      const response = await fetch(`${instance}${endpoint}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       return await response.json();
     } catch (err) {

@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
+import { Innertube, ClientType } from 'youtubei.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,31 +8,22 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Public Active Piped Instances (Fallback List)
-const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://api.piped.privacydev.net',
-  'https://pipedapi.palvelu.org',
-  'https://pipedapi.projectsegfault.net'
-];
+let youtube;
 
-// Helper function to fetch from working instance
-async function fetchFromPiped(endpoint, params = {}) {
-  let lastError;
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const response = await axios.get(`${instance}${endpoint}`, {
-        params,
-        timeout: 5000 // 5 seconds timeout
-      });
-      return response.data;
-    } catch (err) {
-      console.warn(`Instance failed (${instance}):`, err.message);
-      lastError = err;
-    }
+// Initialize YouTube.js with Android/iOS Client Override
+async function initYoutube() {
+  try {
+    youtube = await Innertube.create({
+      client_type: ClientType.ANDROID, // Bot Detection bypass කිරීමට Android context එක පාවිච්චි කරයි
+      generate_session_locally: true
+    });
+    console.log('✅ YouTube.js Client Successfully Initialized!');
+  } catch (err) {
+    console.error('❌ Failed to initialize YouTube.js:', err);
   }
-  throw new Error(lastError ? lastError.message : 'All instances failed');
 }
+
+initYoutube();
 
 // Health Check
 app.get('/', (req, res) => {
@@ -47,52 +38,71 @@ app.get('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Search query (q) is required' });
     }
 
-    const data = await fetchFromPiped('/search', { q: query, filter: 'videos' });
+    if (!youtube) {
+      return res.status(503).json({ error: 'YouTube client is initializing' });
+    }
 
-    const results = data.items.map((video) => ({
-      id: video.url.split('v=')[1],
-      title: video.title,
-      artist: video.uploaderName,
-      thumbnail: video.thumbnail,
-      duration: video.duration,
+    const search = await youtube.search(query, { type: 'video' });
+    
+    const results = search.videos.map((video) => ({
+      id: video.id,
+      title: video.title?.text || 'Unknown Title',
+      artist: video.author?.name || 'Unknown Channel',
+      thumbnail: video.thumbnails?.[0]?.url || '',
+      duration: video.duration?.text || '00:00',
     }));
 
     res.json({ results });
   } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(500).json({ error: 'Search failed', details: error.message });
+    console.error('Search error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// 2. Stream URL Extraction Endpoint
+// 2. Direct Audio Stream Endpoint
 app.get('/api/stream/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
-    const data = await fetchFromPiped(`/streams/${videoId}`);
 
-    const audioStreams = data.audioStreams;
+    if (!youtube) {
+      return res.status(503).json({ error: 'YouTube client is initializing' });
+    }
 
-    if (!audioStreams || audioStreams.length === 0) {
+    // Direct info request using YouTube Android API context
+    const info = await youtube.getBasicInfo(videoId, 'ANDROID');
+    
+    const formats = info.streaming_data?.adaptive_formats || [];
+    const audioFormats = formats.filter(f => f.has_audio && !f.has_video);
+
+    if (audioFormats.length === 0) {
       return res.status(404).json({ error: 'Audio stream not found' });
     }
 
-    // Select the best quality audio stream
-    const bestAudio = audioStreams.reduce((prev, curr) =>
-      curr.bitrate > prev.bitrate ? curr : prev
+    // High Quality audio track තේරීම
+    const bestAudio = audioFormats.reduce((prev, curr) => 
+      (curr.bitrate > prev.bitrate) ? curr : prev
     );
+
+    // Direct Stream URL හෝ Deciphered URL එක ගැනීම
+    let streamUrl = bestAudio.url;
+
+    if (!streamUrl && typeof bestAudio.decipher === 'function') {
+      streamUrl = bestAudio.decipher(youtube.session.player);
+    }
+
+    if (!streamUrl) {
+      return res.status(500).json({ error: 'Could not resolve stream URL' });
+    }
 
     res.json({
       id: videoId,
-      title: data.title,
-      artist: data.uploader,
-      thumbnail: data.thumbnailUrl,
-      streamUrl: bestAudio.url,
-      mimeType: bestAudio.mimeType,
+      streamUrl: streamUrl,
+      mimeType: bestAudio.mime_type,
       bitrate: bestAudio.bitrate,
     });
   } catch (error) {
-    console.error('Stream error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch stream', details: error.message });
+    console.error('Stream error:', error);
+    res.status(500).json({ error: 'Failed to extract audio stream', details: error.message });
   }
 });
 

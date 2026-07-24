@@ -56,7 +56,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// 2. Direct Audio Stream URL Endpoint (Smart URL Extractor)
+// 2. Direct Audio Stream URL Endpoint (Fixed Stream Extraction)
 app.get('/api/stream/:id', async (req, res) => {
   try {
     const videoId = req.params.id;
@@ -65,41 +65,49 @@ app.get('/api/stream/:id', async (req, res) => {
       return res.status(503).json({ error: 'YouTube client is initializing' });
     }
 
-    // Use getInfo for complete player context
     const info = await youtube.getInfo(videoId);
 
-    // Select best audio format
-    let audioFormat;
-    try {
-      audioFormat = info.chooseFormat({ type: 'audio', quality: 'best' });
-    } catch (e) {
-      const formats = info.streaming_data?.adaptive_formats || [];
-      audioFormat = formats.find((f) => f.has_audio && !f.has_video);
-    }
+    // Filter Best Audio Format (.m4a)
+    const format = info.chooseFormat({
+      type: 'audio',
+      quality: 'best'
+    });
 
-    if (!audioFormat) {
+    if (!format) {
       return res.status(404).json({ error: 'Direct audio stream not found' });
     }
 
-    // Check if direct URL exists; if not, decipher it
-    let streamUrl = audioFormat.url;
-    if (!streamUrl && typeof audioFormat.decipher === 'function') {
-      streamUrl = audioFormat.decipher(youtube.session.player);
-    }
-
-    if (!streamUrl) {
-      return res.status(500).json({ error: 'Could not extract stream URL' });
-    }
+    // Direct Stream URL Decrypting via InnerTube built-in format URL solver
+    const streamUrl = format.decipher ? format.decipher(youtube.session.player) : format.url;
 
     res.json({
       id: videoId,
       streamUrl: streamUrl,
-      mimeType: audioFormat.mime_type,
-      bitrate: audioFormat.bitrate,
+      mimeType: format.mime_type,
+      bitrate: format.bitrate,
     });
   } catch (error) {
     console.error('Stream error:', error);
-    res.status(500).json({ error: error.message });
+
+    // Fallback: Try fetching via streamingData direct URL extraction
+    try {
+      const info = await youtube.getBasicInfo(req.params.id);
+      const formats = info.streaming_data?.adaptive_formats || [];
+      const audio = formats.find(f => f.has_audio && !f.has_video);
+
+      if (audio && audio.url) {
+        return res.json({
+          id: req.params.id,
+          streamUrl: audio.url,
+          mimeType: audio.mime_type,
+          bitrate: audio.bitrate
+        });
+      }
+    } catch (fallbackError) {
+      console.error('Fallback error:', fallbackError);
+    }
+
+    res.status(500).json({ error: 'Failed to extract playable audio URL' });
   }
 });
 

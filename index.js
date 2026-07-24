@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import youtubedl from 'yt-dlp-exec';
+import youtubedl from 'youtube-dl-exec';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'YT-DLP Audio API is running!' });
+  res.json({ status: 'online', message: 'YouTube-DL Audio API is running!' });
 });
 
 app.get('/api/search', async (req, res) => {

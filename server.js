@@ -8,11 +8,15 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// 1. Root Endpoint - සර්වර් එක ක්‍රියාත්මකදැයි පරීක්ෂා කිරීමට
 app.get('/', (req, res) => {
-    res.json({ status: 'online', message: 'Secure YouTube Audio Backend is running!' });
+    res.json({ 
+        status: 'online', 
+        message: 'YouTube Audio Extraction API is running successfully!' 
+    });
 });
 
-// 1. සෙවුම් Endpoint එක
+// 2. සෙවුම් Endpoint එක (/api/search?q=query)
 app.get('/api/search', async (req, res) => {
     const searchQuery = req.query.q;
     if (!searchQuery) {
@@ -24,10 +28,8 @@ app.get('/api/search', async (req, res) => {
             dumpJson: true,
             defaultSearch: 'ytsearch',
             extractorArgs: 'youtube:player_client=android',
-            // IP බ්ලොක් වීම වැළැක්වීමට අමතර පරාමිතීන්
             noCheckCertificates: true,
-            geoBypass: true,
-            preferFreeFormats: true
+            geoBypass: true
         });
 
         const lines = output.trim().split('\n');
@@ -47,13 +49,17 @@ app.get('/api/search', async (req, res) => {
         }).filter(item => item !== null);
 
         res.json({ success: true, data: results });
-    }CATCH (error) {
+    } catch (error) {
         console.error('Search Error:', error);
-        res.status(500).json({ success: false, error: 'Failed to fetch search results' });
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch search results',
+            details: error.message 
+        });
     }
 });
 
-// 2. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන Endpoint එක
+// 3. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන Endpoint එක (/api/stream/:id)
 app.get('/api/stream/:id', async (req, res) => {
     const videoId = req.params.id;
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -62,16 +68,16 @@ app.get('/api/stream/:id', async (req, res) => {
         const output = await youtubedl(videoUrl, {
             dumpSingleJson: true,
             noWarnings: true,
-            format: 'bestaudio',
-            // Bot Detection මඟහරවා ගැනීමට ප්‍රධාන ක්‍රමවේදයන්:
-            extractorArgs: 'youtube:player_client=android,web',
+            // 1. Audio format එකක් නැතිනම් ස්වයංක්‍රීයව හොඳම Video+Audio format එකකට මාරු වන ලෙස Fallback යෙදීම:
+            format: 'bestaudio[ext=m4a]/bestaudio/best',
+            // 2. Client එක android ලෙස ලබා දී Bot Detection මඟහැරීම:
+            extractorArgs: 'youtube:player_client=android',
             noCheckCertificates: true,
-            geoBypass: true,
-            // ඔබගේ ගිණුමේ cookies ගොනුවක් (cookies.txt) Railway වෙත ලබා දෙන්නේ නම් පහත පේළිය සක්‍රීය කරන්න:
-            // cookies: './cookies.txt'
+            geoBypass: true
         });
 
-        const streamUrl = output.url;
+        // 3. Direct URL එක හෝ Formats array එකෙන් Stream URL එක තෝරාගැනීම:
+        const streamUrl = output.url || (output.formats && output.formats.length > 0 ? output.formats[0].url : null);
 
         if (!streamUrl) {
             return res.status(404).json({ success: false, error: 'Stream URL not found' });
@@ -87,10 +93,15 @@ app.get('/api/stream/:id', async (req, res) => {
         });
     } catch (error) {
         console.error('Stream Extraction Error:', error);
-        res.status(500).json({ success: false, error: 'Failed to extract audio stream due to bot detection' });
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to extract audio stream',
+            details: error.message 
+        });
     }
 });
 
+// Server Start
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });

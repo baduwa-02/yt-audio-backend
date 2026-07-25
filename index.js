@@ -8,6 +8,16 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
+// Common options to bypass basic bot detection
+const ytOptions = {
+  dumpJson: true,
+  noWarnings: true,
+  preferFreeFormats: true,
+  addHeader: [
+    'user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  ]
+};
+
 app.get('/', (req, res) => {
   res.json({ status: 'online', message: 'YouTube-DL Audio API is running!' });
 });
@@ -20,7 +30,7 @@ app.get('/api/search', async (req, res) => {
     }
 
     const output = await youtubedl(`ytsearch5:${query}`, {
-      dumpJson: true,
+      ...ytOptions,
       flatPlaylist: true,
     });
 
@@ -59,8 +69,8 @@ app.get('/api/stream/:id', async (req, res) => {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
     const output = await youtubedl(videoUrl, {
+      ...ytOptions,
       dumpSingleJson: true,
-      noWarnings: true,
       format: 'bestaudio',
     });
 

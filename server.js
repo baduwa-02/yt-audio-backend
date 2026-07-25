@@ -8,12 +8,11 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// සර්වර් එක ක්‍රියාත්මක දැයි පරීක්ෂා කිරීමට Root Route එකක්
 app.get('/', (req, res) => {
-    res.json({ status: 'online', message: 'YouTube Audio Player Backend is running smoothly!' });
+    res.json({ status: 'online', message: 'Secure YouTube Audio Backend is running!' });
 });
 
-// 1. වීඩියෝ සෙවුම් Endpoint එක (/api/search?q=query)
+// 1. සෙවුම් Endpoint එක
 app.get('/api/search', async (req, res) => {
     const searchQuery = req.query.q;
     if (!searchQuery) {
@@ -24,10 +23,13 @@ app.get('/api/search', async (req, res) => {
         const output = await youtubedl(`ytsearch10:${searchQuery}`, {
             dumpJson: true,
             defaultSearch: 'ytsearch',
-            extractorArgs: 'youtube:player_client=android'
+            extractorArgs: 'youtube:player_client=android',
+            // IP බ්ලොක් වීම වැළැක්වීමට අමතර පරාමිතීන්
+            noCheckCertificates: true,
+            geoBypass: true,
+            preferFreeFormats: true
         });
 
-        // බහු රේඛා JSON ප්‍රතිඵල Array එකකට සැකසීම
         const lines = output.trim().split('\n');
         const results = lines.map(line => {
             try {
@@ -45,13 +47,13 @@ app.get('/api/search', async (req, res) => {
         }).filter(item => item !== null);
 
         res.json({ success: true, data: results });
-    } catch (error) {
+    }CATCH (error) {
         console.error('Search Error:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch search results' });
     }
 });
 
-// 2. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන Endpoint එක (/api/stream/:id)
+// 2. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන Endpoint එක
 app.get('/api/stream/:id', async (req, res) => {
     const videoId = req.params.id;
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -61,7 +63,12 @@ app.get('/api/stream/:id', async (req, res) => {
             dumpSingleJson: true,
             noWarnings: true,
             format: 'bestaudio',
-            extractorArgs: 'youtube:player_client=android'
+            // Bot Detection මඟහරවා ගැනීමට ප්‍රධාන ක්‍රමවේදයන්:
+            extractorArgs: 'youtube:player_client=android,web',
+            noCheckCertificates: true,
+            geoBypass: true,
+            // ඔබගේ ගිණුමේ cookies ගොනුවක් (cookies.txt) Railway වෙත ලබා දෙන්නේ නම් පහත පේළිය සක්‍රීය කරන්න:
+            // cookies: './cookies.txt'
         });
 
         const streamUrl = output.url;
@@ -80,7 +87,7 @@ app.get('/api/stream/:id', async (req, res) => {
         });
     } catch (error) {
         console.error('Stream Extraction Error:', error);
-        res.status(500).json({ success: false, error: 'Failed to extract audio stream' });
+        res.status(500).json({ success: false, error: 'Failed to extract audio stream due to bot detection' });
     }
 });
 

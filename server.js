@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// 1. සෙවුම් API එක (Search Endpoint) - Invidious API හරහා
+// 1. සෙවුම් API එක (Search Endpoint) - Piped API හරහා
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     
@@ -16,21 +16,18 @@ app.get('/api/search', async (req, res) => {
     }
 
     try {
-        // Invidious public instance එකක් හරහා සෙවුම් ප්‍රතිඵල ලබා ගැනීම
-        const response = await fetch(`https://invidious.privacydev.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`);
+        const response = await fetch(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(query)}&filter=videos`);
         const data = await response.json();
 
-        if (!Array.isArray(data)) {
+        if (!data || !data.items) {
             return res.status(500).json({ success: false, error: 'Invalid response from search API' });
         }
 
-        const results = data.map(item => ({
-            id: item.videoId,
+        const results = data.items.map(item => ({
+            id: item.url.split('/watch?v=')[1],
             title: item.title,
-            duration: item.lengthSeconds,
-            thumbnail: item.videoThumbnails && item.videoThumbnails.length > 0 
-                ? item.videoThumbnails[0].url 
-                : `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`
+            duration: item.duration,
+            thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${item.url.split('/watch?v=')[1]}/hqdefault.jpg`
         }));
 
         res.json({ success: true, data: results });
@@ -49,23 +46,16 @@ app.get('/api/stream/:id', async (req, res) => {
     }
 
     try {
-        // Invidious API හරහා අදාළ වීඩියෝවේ විස්තර සහ stream URL ලබා ගැනීම
-        const response = await fetch(`https://invidious.privacydev.net/api/v1/videos/${videoId}`);
+        // Piped API එක හරහා වීඩියෝ විස්තර සහ ශ්‍රව්‍ය ප්‍රභව ලබා ගැනීම
+        const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
         const data = await response.json();
 
-        if (!data || !data.adaptiveFormats) {
-            return res.status(404).json({ success: false, error: 'Stream not found' });
+        if (!data || !data.audioStreams || data.audioStreams.length === 0) {
+            return res.status(404).json({ success: false, error: 'Audio stream not found' });
         }
 
-        // හොඳම Audio Only ෆෝමැට් එක තෝරා ගැනීම
-        const audioFormats = data.adaptiveFormats.filter(format => format.type && format.type.includes('audio'));
-        
-        if (audioFormats.length === 0) {
-            return res.status(404).json({ success: false, error: 'Audio stream format not found' });
-        }
-
-        // උසස්ම තත්ත්වයේ audio URL එක ලබා ගැනීම
-        const bestAudio = audioFormats[audioFormats.length - 1];
+        // වැඩ කරන හොඳම audio stream URL එක තෝරා ගැනීම
+        const bestAudio = data.audioStreams.find(s => s.url) || data.audioStreams[0];
 
         res.json({ 
             success: true, 

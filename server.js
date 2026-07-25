@@ -1,5 +1,4 @@
 const express = require('express');
-const youtubedl = require('youtube-dl-exec');
 const cors = require('cors');
 
 const app = express();
@@ -8,100 +7,77 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// 1. Root Endpoint - සර්වර් එක ක්‍රියාත්මකදැයි පරීක්ෂා කිරීමට
-app.get('/', (req, res) => {
-    res.json({ 
-        status: 'online', 
-        message: 'YouTube Audio Extraction API is running successfully!' 
-    });
-});
-
-// 2. සෙවුම් Endpoint එක (/api/search?q=query)
+// 1. සෙවුම් API එක (Search Endpoint) - Invidious API හරහා
 app.get('/api/search', async (req, res) => {
-    const searchQuery = req.query.q;
-    if (!searchQuery) {
-        return res.status(400).json({ success: false, error: 'Search query (q) is required' });
+    const query = req.query.q;
+    
+    if (!query) {
+        return res.status(400).json({ error: 'Search query (q) is required' });
     }
 
     try {
-        const output = await youtubedl(`ytsearch10:${searchQuery}`, {
-            dumpJson: true,
-            defaultSearch: 'ytsearch',
-            extractorArgs: 'youtube:player_client=android',
-            noCheckCertificates: true,
-            geoBypass: true
-        });
+        // Invidious public instance එකක් හරහා සෙවුම් ප්‍රතිඵල ලබා ගැනීම
+        const response = await fetch(`https://invidious.privacydev.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`);
+        const data = await response.json();
 
-        const lines = output.trim().split('\n');
-        const results = lines.map(line => {
-            try {
-                const data = JSON.parse(line);
-                return {
-                    id: data.id,
-                    title: data.title,
-                    duration: data.duration_string || data.duration,
-                    thumbnail: data.thumbnail,
-                    uploader: data.uploader
-                };
-            } catch (err) {
-                return null;
-            }
-        }).filter(item => item !== null);
+        if (!Array.isArray(data)) {
+            return res.status(500).json({ success: false, error: 'Invalid response from search API' });
+        }
+
+        const results = data.map(item => ({
+            id: item.videoId,
+            title: item.title,
+            duration: item.lengthSeconds,
+            thumbnail: item.videoThumbnails && item.videoThumbnails.length > 0 
+                ? item.videoThumbnails[0].url 
+                : `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`
+        }));
 
         res.json({ success: true, data: results });
     } catch (error) {
         console.error('Search Error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to fetch search results',
-            details: error.message 
-        });
+        res.status(500).json({ success: false, error: 'Failed to fetch search results' });
     }
 });
 
-// 3. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන Endpoint එක (/api/stream/:id)
+// 2. ශ්‍රව්‍ය ධාවන සබැඳිය ලබා දෙන API එක (Audio Stream Endpoint)
 app.get('/api/stream/:id', async (req, res) => {
     const videoId = req.params.id;
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    if (!videoId) {
+        return res.status(400).json({ error: 'Video ID is required' });
+    }
 
     try {
-        const output = await youtubedl(videoUrl, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            // 1. Audio format එකක් නැතිනම් ස්වයංක්‍රීයව හොඳම Video+Audio format එකකට මාරු වන ලෙස Fallback යෙදීම:
-            format: 'bestaudio[ext=m4a]/bestaudio/best',
-            // 2. Client එක android ලෙස ලබා දී Bot Detection මඟහැරීම:
-            extractorArgs: 'youtube:player_client=android',
-            noCheckCertificates: true,
-            geoBypass: true
-        });
+        // Invidious API හරහා අදාළ වීඩියෝවේ විස්තර සහ stream URL ලබා ගැනීම
+        const response = await fetch(`https://invidious.privacydev.net/api/v1/videos/${videoId}`);
+        const data = await response.json();
 
-        // 3. Direct URL එක හෝ Formats array එකෙන් Stream URL එක තෝරාගැනීම:
-        const streamUrl = output.url || (output.formats && output.formats.length > 0 ? output.formats[0].url : null);
-
-        if (!streamUrl) {
-            return res.status(404).json({ success: false, error: 'Stream URL not found' });
+        if (!data || !data.adaptiveFormats) {
+            return res.status(404).json({ success: false, error: 'Stream not found' });
         }
 
-        res.json({
-            success: true,
-            id: output.id,
-            title: output.title,
-            duration: output.duration,
-            thumbnail: output.thumbnail,
-            streamUrl: streamUrl
+        // හොඳම Audio Only ෆෝමැට් එක තෝරා ගැනීම
+        const audioFormats = data.adaptiveFormats.filter(format => format.type && format.type.includes('audio'));
+        
+        if (audioFormats.length === 0) {
+            return res.status(404).json({ success: false, error: 'Audio stream format not found' });
+        }
+
+        // උසස්ම තත්ත්වයේ audio URL එක ලබා ගැනීම
+        const bestAudio = audioFormats[audioFormats.length - 1];
+
+        res.json({ 
+            success: true, 
+            videoId: videoId, 
+            streamUrl: bestAudio.url 
         });
     } catch (error) {
         console.error('Stream Extraction Error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to extract audio stream',
-            details: error.message 
-        });
+        res.status(500).json({ success: false, error: 'Failed to extract audio stream' });
     }
 });
 
-// Server Start
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Music Player Backend is running on port ${PORT}`);
 });

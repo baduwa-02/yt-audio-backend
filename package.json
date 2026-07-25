@@ -1,14 +1,17 @@
 {
-  "name": "youtube-audio-server",
+  "name": "youtube-audio-backend",
   "version": "1.0.0",
-  "type": "module",
-  "main": "index.js",
+  "description": "Ad-free YouTube Audio Player Backend using Node.js and yt-dlp",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "youtube-dl-exec": "^2.5.8"
+    "youtube-dl-exec": "^2.4.12"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }

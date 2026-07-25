@@ -1,14 +1,13 @@
 {
-  "name": "youtube-audio-backend",
+  "name": "music-player-backend",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Ad-free music player backend using Invidious API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "youtube-dl-exec": "^2.4.12"
+    "express": "^4.19.2"
   }
 }
